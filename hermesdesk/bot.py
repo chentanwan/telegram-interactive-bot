@@ -27,6 +27,15 @@ from hermesdesk.handlers.admin import (
     unban,
 )
 from hermesdesk.handlers.captcha import callback_query_vcode
+from hermesdesk.handlers.staff import (
+    canned_callback,
+    claim,
+    delreply,
+    replies,
+    reply_canned,
+    setreply,
+    unclaim,
+)
 from hermesdesk.handlers.sync import edited_message_a2u, edited_message_u2a
 from hermesdesk.handlers.user import forwarding_message_u2a, start
 from hermesdesk.logging_setup import setup_logging
@@ -77,6 +86,13 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("info", info, admin_chat))
     application.add_handler(CommandHandler("note", note, admin_chat))
     application.add_handler(CommandHandler("del", delete_pair, admin_chat))
+    application.add_handler(CommandHandler("claim", claim, admin_chat))
+    application.add_handler(CommandHandler("unclaim", unclaim, admin_chat))
+    application.add_handler(CommandHandler("replies", replies, admin_chat))
+    application.add_handler(CommandHandler("setreply", setreply, admin_chat))
+    application.add_handler(CommandHandler("delreply", delreply, admin_chat))
+    application.add_handler(CommandHandler("reply", reply_canned, admin_chat))
+    application.add_handler(CallbackQueryHandler(canned_callback, pattern="^canned_"))
     application.add_handler(CallbackQueryHandler(callback_query_vcode, pattern="^vcode_"))
     application.add_error_handler(error_handler)
     return application

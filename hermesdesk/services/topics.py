@@ -53,4 +53,7 @@ def reset_user_topic(session: Session, user: User) -> None:
         if record is not None:
             session.delete(record)
     user.message_thread_id = 0
+    user.claimed_by = None
+    user.claimed_by_name = None
+    user.claimed_at = None
     session.flush()

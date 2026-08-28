@@ -97,3 +97,28 @@ def set_note(session: Session, user: User, note: str | None) -> User:
     user.note = note
     session.flush()
     return user
+
+
+def set_claim(
+    session: Session,
+    user: User,
+    *,
+    staff_id: int | None,
+    staff_name: str | None,
+) -> User:
+    user.claimed_by = staff_id
+    user.claimed_by_name = staff_name
+    user.claimed_at = datetime.now(timezone.utc) if staff_id else None
+    session.flush()
+    return user
+
+
+def claim_label(user: User) -> str:
+    if not user.claimed_by:
+        return "未认领"
+    who = user.claimed_by_name or str(user.claimed_by)
+    return f"{who}（{user.claimed_by}）"
+
+
+def count_claimed(session: Session) -> int:
+    return session.query(User).filter(User.claimed_by.isnot(None)).count()

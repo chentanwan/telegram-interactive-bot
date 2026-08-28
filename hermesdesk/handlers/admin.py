@@ -38,8 +38,10 @@ from hermesdesk.services.topics import (
     set_topic_status,
 )
 from hermesdesk.services.users import (
+    claim_label,
     count_banned,
     count_blocked,
+    count_claimed,
     count_users,
     get_user_by_id,
     get_user_by_thread,
@@ -324,6 +326,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         total = count_users(session)
         banned = count_banned(session)
         blocked = count_blocked(session)
+        claimed = count_claimed(session)
         opened = count_open_topics(session)
 
     queued = len(context.job_queue.jobs()) if context.job_queue else 0
@@ -332,6 +335,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"用户总数：{total}\n"
         f"封禁用户：{banned}\n"
         f"停用机器人：{blocked}\n"
+        f"认领中：{claimed}\n"
         f"开放话题：{opened}\n"
         f"后台任务：{queued}"
     )
@@ -398,6 +402,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"会员：{'Premium' if db_user.is_premium else '普通'}\n"
             f"封禁：{'是' if db_user.is_banned else '否'}\n"
             f"停用机器人：{'是' if db_user.is_blocked else '否'}\n"
+            f"认领：{html.escape(claim_label(db_user))}\n"
             f"话题：{topic_state}（{db_user.message_thread_id or 0}）\n"
             f"最近出现：{_format_time(db_user.last_seen_at)}\n"
             f"建档：{_format_time(db_user.created_at)}\n"

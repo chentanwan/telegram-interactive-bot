@@ -59,6 +59,12 @@ def _ensure_sqlite_columns() -> None:
         statements.append("ALTER TABLE user ADD COLUMN is_blocked BOOLEAN DEFAULT 0")
     if "note" not in columns:
         statements.append("ALTER TABLE user ADD COLUMN note VARCHAR(4096)")
+    if "claimed_by" not in columns:
+        statements.append("ALTER TABLE user ADD COLUMN claimed_by INTEGER")
+    if "claimed_by_name" not in columns:
+        statements.append("ALTER TABLE user ADD COLUMN claimed_by_name VARCHAR(128)")
+    if "claimed_at" not in columns:
+        statements.append("ALTER TABLE user ADD COLUMN claimed_at DATETIME")
     if not statements:
         return
     with engine.begin() as conn:

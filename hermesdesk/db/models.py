@@ -50,3 +50,18 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_seen_at = Column(DateTime(timezone=True), server_default=func.now())
     message_thread_id = Column(Integer, default=0)
+    claimed_by = Column(Integer)
+    claimed_by_name = Column(String(128))
+    claimed_at = Column(DateTime(timezone=True))
+
+
+class CannedReply(Base):
+    __tablename__ = "canned_reply"
+    __table_args__ = (UniqueConstraint("slug", name="uq_canned_reply_slug"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(64), unique=True, index=True, nullable=False)
+    body = Column(String(1024 * 4), nullable=False)
+    created_by = Column(Integer)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
