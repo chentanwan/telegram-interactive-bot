@@ -1,0 +1,13 @@
+services:
+  hermesdesk:
+    build: .
+    container_name: hermesdesk
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      ASSETS_DIR: /app/assets
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets:ro

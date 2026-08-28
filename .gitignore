@@ -162,3 +162,9 @@ cython_debug/
 #.idea/
 
 .env
+data/*
+!data/.gitkeep
+*.pickle
+log.txt
+hermesdesk.log
+.DS_Store
