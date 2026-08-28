@@ -57,3 +57,43 @@ def count_users(session: Session) -> int:
 
 def count_banned(session: Session) -> int:
     return session.query(User).filter(User.is_banned.is_(True)).count()
+
+
+def count_blocked(session: Session) -> int:
+    return session.query(User).filter(User.is_blocked.is_(True)).count()
+
+
+def list_broadcast_targets(session: Session) -> list[User]:
+    return (
+        session.query(User)
+        .filter(User.is_banned.is_(False), User.is_blocked.is_(False))
+        .all()
+    )
+
+
+def set_banned(session: Session, user: User, banned: bool) -> User:
+    user.is_banned = banned
+    session.flush()
+    return user
+
+
+def set_blocked(session: Session, user: User, blocked: bool) -> User:
+    user.is_blocked = blocked
+    session.flush()
+    return user
+
+
+def mark_blocked_by_ids(session: Session, user_ids: list[int]) -> int:
+    if not user_ids:
+        return 0
+    users = session.query(User).filter(User.user_id.in_(user_ids)).all()
+    for user in users:
+        user.is_blocked = True
+    session.flush()
+    return len(users)
+
+
+def set_note(session: Session, user: User, note: str | None) -> User:
+    user.note = note
+    session.flush()
+    return user

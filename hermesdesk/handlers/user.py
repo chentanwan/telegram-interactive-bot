@@ -24,7 +24,7 @@ from hermesdesk.handlers.captcha import ensure_human
 from hermesdesk.services.media_group import schedule_media_group, store_media_group_message
 from hermesdesk.services.messages import group_id_for_user_message, save_map
 from hermesdesk.services.topics import is_topic_closed, reset_user_topic, set_topic_status
-from hermesdesk.services.users import get_user_by_id, upsert_user
+from hermesdesk.services.users import get_user_by_id, set_blocked, upsert_user
 
 logger = logging.getLogger("hermesdesk.user")
 
@@ -118,6 +118,8 @@ async def forwarding_message_u2a(update: Update, context: ContextTypes.DEFAULT_T
 
     with get_session() as session:
         db_user = upsert_user(session, user)
+        if db_user.is_blocked:
+            set_blocked(session, db_user, False)
         if db_user.is_banned:
             await update.message.reply_html("你已被客服封禁，暂时无法继续对话。")
             return

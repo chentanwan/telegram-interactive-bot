@@ -44,6 +44,8 @@ class User(Base):
     username = Column(String(64))
     is_premium = Column(Boolean, default=False)
     is_banned = Column(Boolean, default=False)
+    is_blocked = Column(Boolean, default=False)
+    note = Column(String(1024 * 4))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_seen_at = Column(DateTime(timezone=True), server_default=func.now())

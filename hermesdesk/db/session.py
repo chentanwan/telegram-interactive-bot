@@ -55,6 +55,10 @@ def _ensure_sqlite_columns() -> None:
         statements.append("ALTER TABLE user ADD COLUMN created_at DATETIME")
     if "last_seen_at" not in columns:
         statements.append("ALTER TABLE user ADD COLUMN last_seen_at DATETIME")
+    if "is_blocked" not in columns:
+        statements.append("ALTER TABLE user ADD COLUMN is_blocked BOOLEAN DEFAULT 0")
+    if "note" not in columns:
+        statements.append("ALTER TABLE user ADD COLUMN note VARCHAR(4096)")
     if not statements:
         return
     with engine.begin() as conn:

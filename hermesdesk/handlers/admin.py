@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
+from types import SimpleNamespace
 
 from telegram import Update
 from telegram.error import Forbidden, RetryAfter
 from telegram.ext import ContextTypes
+from telegram.helpers import mention_html
 
 from hermesdesk.config import (
     ADMIN_GROUP_ID,
@@ -15,7 +18,9 @@ from hermesdesk.config import (
     BROADCAST_INTERVAL,
     DELETE_USER_MESSAGE_ON_CLEAR_CMD,
 )
+from hermesdesk.db.models import User
 from hermesdesk.db.session import get_session
+from hermesdesk.handlers.user import send_contact_card
 from hermesdesk.services.media_group import schedule_media_group, store_media_group_message
 from hermesdesk.services.messages import (
     delete_maps_for_user,
@@ -25,17 +30,76 @@ from hermesdesk.services.messages import (
 )
 from hermesdesk.services.topics import (
     count_open_topics,
+    get_topic_status,
     is_topic_closed,
     reset_user_topic,
     set_topic_status,
 )
-from hermesdesk.services.users import count_banned, count_users, get_user_by_thread, list_users, upsert_user
+from hermesdesk.services.users import (
+    count_banned,
+    count_blocked,
+    count_users,
+    get_user_by_id,
+    get_user_by_thread,
+    list_broadcast_targets,
+    mark_blocked_by_ids,
+    set_banned,
+    set_blocked,
+    set_note,
+    upsert_user,
+)
 
 logger = logging.getLogger("hermesdesk.admin")
 
 
 def _is_admin(user_id: int) -> bool:
     return user_id in ADMIN_USER_IDS
+
+
+def _format_time(value) -> str:
+    if not value:
+        return "无"
+    try:
+        if getattr(value, "tzinfo", None) is not None:
+            value = value.astimezone()
+        return value.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return str(value)
+
+
+def _card_user(db_user: User) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=db_user.user_id,
+        first_name=db_user.first_name or str(db_user.user_id),
+        last_name=db_user.last_name or "",
+        username=db_user.username,
+        is_premium=bool(db_user.is_premium),
+    )
+
+
+def _display_name(db_user: User) -> str:
+    first = db_user.first_name or ""
+    last = db_user.last_name or ""
+    full = f"{first} {last}".strip() or str(db_user.user_id)
+    return mention_html(db_user.user_id, full)
+
+
+async def _require_staff_topic_user(update: Update) -> User | None:
+    actor = update.effective_user
+    if not _is_admin(actor.id):
+        await update.message.reply_html("你没有权限执行此操作。")
+        return None
+    thread_id = update.message.message_thread_id
+    if not thread_id:
+        await update.message.reply_html("请在客户话题内使用这条命令。")
+        return None
+    with get_session() as session:
+        target = get_user_by_thread(session, thread_id)
+        if target is None:
+            await update.message.reply_html("这个话题没有绑定客户。")
+            return None
+        session.expunge(target)
+        return target
 
 
 async def forwarding_message_a2u(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -124,6 +188,14 @@ async def forwarding_message_a2u(update: Update, context: ContextTypes.DEFAULT_T
                 group_chat_message_id=update.message.id,
                 user_chat_message_id=sent_msg.message_id,
             )
+    except Forbidden:
+        with get_session() as session:
+            db_user = get_user_by_id(session, user_id)
+            if db_user is not None:
+                set_blocked(session, db_user, True)
+        await update.message.reply_html(
+            "发送失败：客户已停用机器人。已标记为停用，下次广播会跳过。"
+        )
     except Exception as exc:
         logger.exception("a2u forward failed")
         await update.message.reply_html(f"发送失败: {exc}\n")
@@ -169,12 +241,12 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE) -> None:
     thread_id = payload.get("thread_id")
 
     with get_session() as session:
-        users = list_users(session)
-        user_ids = [item.user_id for item in users if not item.is_banned]
+        user_ids = [item.user_id for item in list_broadcast_targets(session)]
 
     success = 0
     failed = 0
     blocked = 0
+    newly_blocked: list[int] = []
     for user_id in user_ids:
         try:
             chat = await context.bot.get_chat(user_id)
@@ -182,12 +254,16 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE) -> None:
             success += 1
         except Forbidden:
             blocked += 1
+            newly_blocked.append(user_id)
         except RetryAfter as exc:
             await asyncio.sleep(exc.retry_after + 0.5)
             try:
                 chat = await context.bot.get_chat(user_id)
                 await chat.send_copy(chat_id, msg_id)
                 success += 1
+            except Forbidden:
+                blocked += 1
+                newly_blocked.append(user_id)
             except Exception:
                 failed += 1
         except Exception:
@@ -195,8 +271,12 @@ async def _broadcast(context: ContextTypes.DEFAULT_TYPE) -> None:
         if BROADCAST_INTERVAL > 0:
             await asyncio.sleep(BROADCAST_INTERVAL)
 
+    if newly_blocked:
+        with get_session() as session:
+            mark_blocked_by_ids(session, newly_blocked)
+
     summary = (
-        f"广播完成。\n成功 {success} / 失败 {failed} / 拉黑或停用 {blocked}。"
+        f"广播完成。\n成功 {success} / 失败 {failed} / 停用机器人 {blocked}。"
     )
     try:
         await context.bot.send_message(
@@ -241,6 +321,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     with get_session() as session:
         total = count_users(session)
         banned = count_banned(session)
+        blocked = count_blocked(session)
         opened = count_open_topics(session)
 
     queued = len(context.job_queue.jobs()) if context.job_queue else 0
@@ -248,8 +329,114 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"<b>HermesDesk 状态</b>\n"
         f"用户总数：{total}\n"
         f"封禁用户：{banned}\n"
+        f"停用机器人：{blocked}\n"
         f"开放话题：{opened}\n"
         f"后台任务：{queued}"
+    )
+
+
+async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    target = await _require_staff_topic_user(update)
+    if target is None:
+        return
+    with get_session() as session:
+        db_user = get_user_by_id(session, target.user_id)
+        if db_user is None:
+            await update.message.reply_html("找不到这个客户。")
+            return
+        set_banned(session, db_user, True)
+        name = _display_name(db_user)
+    try:
+        await context.bot.send_message(target.user_id, "你已被客服封禁，暂时无法继续对话。")
+    except Exception as exc:
+        logger.info("could not notify banned user %s: %s", target.user_id, exc)
+    await update.message.reply_html(
+        f"已封禁 {name}。客户无法再发消息进来，话题可以保留作记录。"
+    )
+
+
+async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    target = await _require_staff_topic_user(update)
+    if target is None:
+        return
+    with get_session() as session:
+        db_user = get_user_by_id(session, target.user_id)
+        if db_user is None:
+            await update.message.reply_html("找不到这个客户。")
+            return
+        set_banned(session, db_user, False)
+        set_blocked(session, db_user, False)
+        name = _display_name(db_user)
+    try:
+        await context.bot.send_message(target.user_id, "客服已解除对你的限制，可以继续发送消息。")
+    except Exception as exc:
+        logger.info("could not notify unbanned user %s: %s", target.user_id, exc)
+    await update.message.reply_html(f"已解封 {name}，并清除停用标记。")
+
+
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    target = await _require_staff_topic_user(update)
+    if target is None:
+        return
+
+    with get_session() as session:
+        db_user = get_user_by_id(session, target.user_id)
+        if db_user is None:
+            await update.message.reply_html("找不到这个客户。")
+            return
+        topic = get_topic_status(session, db_user.message_thread_id or 0)
+        topic_state = topic.status if topic else "无话题"
+        note_text = db_user.note or "无"
+        card = _card_user(db_user)
+        text = (
+            f"<b>客户资料</b>\n"
+            f"用户：{_display_name(db_user)}\n"
+            f"ID：<code>{db_user.user_id}</code>\n"
+            f"用户名：@{html.escape(db_user.username) if db_user.username else '无'}\n"
+            f"会员：{'Premium' if db_user.is_premium else '普通'}\n"
+            f"封禁：{'是' if db_user.is_banned else '否'}\n"
+            f"停用机器人：{'是' if db_user.is_blocked else '否'}\n"
+            f"话题：{topic_state}（{db_user.message_thread_id or 0}）\n"
+            f"最近出现：{_format_time(db_user.last_seen_at)}\n"
+            f"建档：{_format_time(db_user.created_at)}\n"
+            f"备注：{html.escape(note_text)}"
+        )
+        thread_id = db_user.message_thread_id
+
+    await update.message.reply_html(text)
+    if thread_id:
+        try:
+            await send_contact_card(update.effective_chat.id, thread_id, card, context)
+        except Exception as exc:
+            logger.info("could not refresh contact card: %s", exc)
+
+
+async def note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    target = await _require_staff_topic_user(update)
+    if target is None:
+        return
+
+    raw = " ".join(context.args).strip() if context.args else ""
+    if not raw and update.message.reply_to_message and update.message.reply_to_message.text:
+        raw = update.message.reply_to_message.text.strip()
+
+    with get_session() as session:
+        db_user = get_user_by_id(session, target.user_id)
+        if db_user is None:
+            await update.message.reply_html("找不到这个客户。")
+            return
+        if not raw or raw in {"-", "clear", "删除"}:
+            set_note(session, db_user, None)
+            await update.message.reply_html("已清空该客户的备注。")
+            return
+        if len(raw) > 4000:
+            await update.message.reply_html("备注太长，请控制在 4000 字以内。")
+            return
+        set_note(session, db_user, raw)
+        name = _display_name(db_user)
+
+    await update.message.reply_html(
+        f"已记下 {name} 的备注（仅客服可见）：\n{html.escape(raw)}"
     )
 
 
