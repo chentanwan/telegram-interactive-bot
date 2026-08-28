@@ -13,7 +13,8 @@ A self-hosted bidirectional Telegram helpdesk bot. Customers talk to the bot in 
 - Closing / reopening a topic pauses / resumes the conversation
 - Albums, image captcha, flood interval, optional forever-ban when a topic is deleted
 - `/clear`, `/broadcast` (success / fail / bot-blocked summary), `/status`
-- Staff topic commands: `/ban`, `/unban`, `/info`, `/note`
+- Staff topic commands: `/ban`, `/unban`, `/info`, `/note`, `/del` (paired delete)
+- Text / caption edits sync both ways. Bots do not receive user-side deletes, so staff use `/del`.
 
 ## Run locally
 

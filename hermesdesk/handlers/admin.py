@@ -23,7 +23,9 @@ from hermesdesk.db.session import get_session
 from hermesdesk.handlers.user import send_contact_card
 from hermesdesk.services.media_group import schedule_media_group, store_media_group_message
 from hermesdesk.services.messages import (
+    delete_map,
     delete_maps_for_user,
+    get_map_by_group_message,
     list_user_chat_message_ids,
     save_map,
     user_id_for_group_message,
@@ -438,6 +440,50 @@ async def note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_html(
         f"已记下 {name} 的备注（仅客服可见）：\n{html.escape(raw)}"
     )
+
+
+async def delete_pair(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    target = await _require_staff_topic_user(update)
+    if target is None:
+        return
+    if not update.message.reply_to_message:
+        await update.message.reply_html("请回复要删除的那条消息，再发送 /del。")
+        return
+
+    group_message_id = update.message.reply_to_message.message_id
+    with get_session() as session:
+        record = get_map_by_group_message(session, group_message_id)
+        if record is None or record.user_id != target.user_id:
+            await update.message.reply_html("这条消息没有对应的客户侧副本，无法成对删除。")
+            return
+        user_chat_message_id = record.user_chat_message_id
+        delete_map(session, record)
+
+    try:
+        await context.bot.delete_message(target.user_id, user_chat_message_id)
+    except Forbidden:
+        with get_session() as session:
+            db_user = get_user_by_id(session, target.user_id)
+            if db_user is not None:
+                set_blocked(session, db_user, True)
+        await update.message.reply_html(
+            "客户已停用机器人，无法删除对方那一侧。后台这条仍可手动删。"
+        )
+        return
+    except Exception as exc:
+        logger.info("failed to delete customer copy: %s", exc)
+        await update.message.reply_html(f"客户侧删除失败：{html.escape(str(exc))}")
+        return
+
+    try:
+        await context.bot.delete_message(update.effective_chat.id, group_message_id)
+    except Exception as exc:
+        logger.info("failed to delete group copy: %s", exc)
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:

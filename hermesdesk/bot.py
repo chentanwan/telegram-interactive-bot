@@ -18,6 +18,7 @@ from hermesdesk.handlers.admin import (
     ban,
     broadcast,
     clear,
+    delete_pair,
     error_handler,
     forwarding_message_a2u,
     info,
@@ -26,6 +27,7 @@ from hermesdesk.handlers.admin import (
     unban,
 )
 from hermesdesk.handlers.captcha import callback_query_vcode
+from hermesdesk.handlers.sync import edited_message_a2u, edited_message_u2a
 from hermesdesk.handlers.user import forwarding_message_u2a, start
 from hermesdesk.logging_setup import setup_logging
 
@@ -44,12 +46,29 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start, filters.ChatType.PRIVATE))
     application.add_handler(
-        MessageHandler(~filters.COMMAND & filters.ChatType.PRIVATE, forwarding_message_u2a)
+        MessageHandler(
+            filters.UpdateType.EDITED_MESSAGE & filters.ChatType.PRIVATE,
+            edited_message_u2a,
+        )
     )
     application.add_handler(
-        MessageHandler(~filters.COMMAND & filters.Chat([ADMIN_GROUP_ID]), forwarding_message_a2u)
+        MessageHandler(
+            ~filters.COMMAND
+            & ~filters.UpdateType.EDITED_MESSAGE
+            & filters.ChatType.PRIVATE,
+            forwarding_message_u2a,
+        )
     )
     admin_chat = filters.Chat([ADMIN_GROUP_ID])
+    application.add_handler(
+        MessageHandler(filters.UpdateType.EDITED_MESSAGE & admin_chat, edited_message_a2u)
+    )
+    application.add_handler(
+        MessageHandler(
+            ~filters.COMMAND & ~filters.UpdateType.EDITED_MESSAGE & admin_chat,
+            forwarding_message_a2u,
+        )
+    )
     application.add_handler(CommandHandler("clear", clear, admin_chat))
     application.add_handler(CommandHandler("broadcast", broadcast, admin_chat))
     application.add_handler(CommandHandler("status", status, admin_chat))
@@ -57,6 +76,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("unban", unban, admin_chat))
     application.add_handler(CommandHandler("info", info, admin_chat))
     application.add_handler(CommandHandler("note", note, admin_chat))
+    application.add_handler(CommandHandler("del", delete_pair, admin_chat))
     application.add_handler(CallbackQueryHandler(callback_query_vcode, pattern="^vcode_"))
     application.add_error_handler(error_handler)
     return application

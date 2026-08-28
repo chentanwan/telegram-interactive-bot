@@ -26,6 +26,7 @@
 - `/ban` `/unban` 在客户话题里封禁 / 解封，不必删话题
 - `/info` 查看客户档案并刷新名片
 - `/note` 给客户写仅客服可见的备注
+- 双方编辑文本 / 说明会同步；客服 `/del` 成对删除
 
 ## 和上游的关系
 
@@ -41,7 +42,7 @@
 | Dockerfile 不 COPY 代码 | 镜像内含代码 + `docker-compose` |
 | 日志写仓库根目录 `log.txt` | 滚动日志在 `data/hermesdesk.log` |
 
-0.3 已补上客服命令。下一步是消息编辑/撤回同步和快捷回复，路线写在 [docs/DEVLOG.md](docs/DEVLOG.md)。
+0.4 已做双向编辑同步和客服 `/del`。下一步是快捷回复 / 认领话题，路线写在 [docs/DEVLOG.md](docs/DEVLOG.md)。
 
 ## 准备工作
 
@@ -105,8 +106,9 @@ docker compose up -d --build
 - `/unban`：解封，并清除「停用机器人」标记
 - `/info`：客户档案（Premium、封禁、停用、last_seen、备注）并刷新名片
 - `/note 内容`：写下仅客服可见的备注；`/note` 或 `/note clear` 清空
+- `/del`：回复一条已映射的消息，成对删除后台和客户侧副本
 
-客户侧只有 `/start`。封禁和「客户停用了机器人」是两件事：前者是客服主动限制，后者是 Telegram 返回 Forbidden 后自动打的标记。
+客户侧只有 `/start`。双方编辑文本或说明文字会同步到另一侧。Telegram Bot 收不到对方的撤回事件，所以撤回请用客服 `/del`。封禁和「客户停用了机器人」是两件事：前者是客服主动限制，后者是 Telegram 返回 Forbidden 后自动打的标记。
 
 ## 致谢
 
